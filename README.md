@@ -1,7 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/FrederikWLC/Nodes/master/media/nodes-logo.png" width="256px"><p>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 ![Javascript](https://img.shields.io/badge/Javascript-blue.svg) [![GitHub Issues](https://img.shields.io/github/issues/FrederikWLC/Nodes)](https://github.com/FrederikWLC/Nodes/issues) ![contributions welcome](https://img.shields.io/badge/contributions-welcome-orange.svg) ![Codacy Badge](https://api.codacy.com/project/badge/Grade/d0493aa673594732b18294961b008380)
 
 <br><br>
