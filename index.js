@@ -140,13 +140,14 @@ function display() {
       ctx.arc(nodes[n].position[0], nodes[n].position[1], nodes[n].radius*1.1, 0, 2 * Math.PI);
       ctx.fillStyle = "#96ffff";
       ctx.fill();
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2*nodes[n].radius/25;
     }
     else {
     ctx.arc(nodes[n].position[0], nodes[n].position[1], nodes[n].radius, 0, 2 * Math.PI);
     ctx.fillStyle = "#96ffff";
     ctx.fill();
-    ctx.lineWidth = 1;
+    ctx.lineWidth = nodes[n].radius/25;
+
   }
     ctx.stroke();
 
