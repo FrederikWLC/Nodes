@@ -18,11 +18,13 @@
 
 To create a node, click on an empty space on the canvas.
 
+## Editing node contents
 
+To edit node contents, to start with, click on the node. Then, press Space to enter writing mode. At last, press Enter to exit writing mode. 
 
 ## Connecting nodes
 
 To connect two nodes, to start with, click on the first node you want to include in the connection. Then, press B on the keyboard to enter binding mode. Finally, click on the second node you want the first node to connect to.
 
 ## Deleting nodes
-To delete a node, first click on it and then press Backspace. This will also delete all the node's connections.
+To delete a node, first click on it and then press Delete. This will also delete all the node's connections.
