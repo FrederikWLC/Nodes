@@ -25,32 +25,35 @@ class Node {
 
 class MapApp {
   constructor(canvasId, coordsId) {
-    this.canvas        = document.getElementById(canvasId);
-    this.coordsEl      = document.getElementById(coordsId);
-    this.ctx           = this.canvas.getContext('2d');
+    this.canvas       = document.getElementById(canvasId);
+    this.coordsEl     = document.getElementById(coordsId);
+    this.ctx          = this.canvas.getContext('2d');
 
-    // world state
-    this.nodes         = [];
-    this.connections   = [];
-    this.selected      = null;
-    this.writing       = null;
-    this.pendingBind   = null;
-    this.globalId      = 0;
+    // scene state
+    this.nodes        = [];
+    this.connections  = [];
+    this.selected     = null;
+    this.writing      = null;
+    this.pendingBind  = null;
+    this.globalId     = 0;
 
-    // camera / pan
-    this.cameraOffset  = [0, 0];
-    this.isPanning     = false;
-    this.panStart      = [0, 0];
-    this.cameraStart   = [0, 0];
+    // camera / pan / zoom
+    this.cameraOffset = [0, 0];
+    this.scale        = 1;
+    this.minScale     = 0.2;
+    this.maxScale     = 4;
+    this.isPanning    = false;
+    this.panStart     = [0, 0];
+    this.cameraStart  = [0, 0];
+    this.zoomConstant = 0.01;
 
-    // hold-to-drag node
-    this.holdTimeout     = null;
-    this.draggingNode    = null;
-    this.isDraggingNode  = false;
+    // node-drag via hold
+    this.holdTimeout    = null;
+    this.draggingNode   = null;
+    this.isDraggingNode = false;
 
-    // canvas scale
-    this.sizex         = 0.95;
-    this.sizey         = 0.8;
+    this.sizex = 0.95;
+    this.sizey = 0.8;
 
     MapApp.instance = this;
   }
@@ -64,6 +67,8 @@ class MapApp {
     document.addEventListener('mouseup',   () => this.onMouseUp());
     this.canvas.addEventListener('click',     e => this.onClick(e));
     document.addEventListener('keyup',    e => this.onKeyUp(e));
+    // **new**: zoom on wheel
+    this.canvas.addEventListener('wheel',    e => this.onWheel(e), { passive: false });
 
     requestAnimationFrame(() => this.loop());
   }
@@ -74,38 +79,54 @@ class MapApp {
     this.draw();
   }
 
-  getMousePos(event) {
+  getMousePos(evt) {
     const rect = this.canvas.getBoundingClientRect();
     return [
-      event.clientX - rect.left,
-      event.clientY - rect.top
+      evt.clientX - rect.left,
+      evt.clientY - rect.top
     ];
   }
 
-  screenToWorld(screenX, screenY) {
+  screenToWorld(sx, sy) {
     return [
-      screenX - this.cameraOffset[0],
-      screenY - this.cameraOffset[1]
+      (sx - this.cameraOffset[0]) / this.scale,
+      (sy - this.cameraOffset[1]) / this.scale
     ];
   }
 
-  worldToScreen(worldX, worldY) {
+  worldToScreen(wx, wy) {
     return [
-      worldX + this.cameraOffset[0],
-      worldY + this.cameraOffset[1]
+      wx * this.scale + this.cameraOffset[0],
+      wy * this.scale + this.cameraOffset[1]
     ];
   }
 
-  onMouseMove(event) {
-    const [mx, my] = this.getMousePos(event);
+  onWheel(e) {
+    e.preventDefault();
+    const [mx, my] = this.getMousePos(e);
+    const [wx, wy] = this.screenToWorld(mx, my);
+
+    // adjust scale
+    const delta = - e.deltaY * this.zoomConstant;          // tweak zoom speed here
+    let newScale = this.scale * (1 + delta);
+    newScale = Math.min(this.maxScale, Math.max(this.minScale, newScale));
+
+    // adjust offset so that (wx,wy) stays under the cursor
+    this.cameraOffset[0] = mx - wx * newScale;
+    this.cameraOffset[1] = my - wy * newScale;
+
+    this.scale = newScale;
+    this.draw();
+  }
+
+  onMouseMove(evt) {
+    const [mx, my] = this.getMousePos(evt);
     this.mouseX = mx; this.mouseY = my;
 
-    // dragging node
     if (this.isDraggingNode && this.draggingNode) {
       const world = this.screenToWorld(mx, my);
       this.draggingNode.position = world;
     }
-    // panning
     else if (this.isPanning) {
       const dx = mx - this.panStart[0];
       const dy = my - this.panStart[1];
@@ -113,15 +134,12 @@ class MapApp {
       this.cameraOffset[1] = this.cameraStart[1] + dy;
     }
 
-    // update coords display
     if (this.coordsEl) {
       this.coordsEl.textContent = `${mx} | ${my}`;
     }
 
-    // update cursor
-    if (this.isDraggingNode) {
-      this.canvas.style.cursor = 'grabbing';
-    } else if (this.isPanning) {
+    // cursor feedback
+    if (this.isDraggingNode || this.isPanning) {
       this.canvas.style.cursor = 'grabbing';
     } else {
       const world = this.screenToWorld(mx, my);
@@ -130,47 +148,40 @@ class MapApp {
     }
   }
 
-  onMouseDown(event) {
-    const [mx, my] = this.getMousePos(event);
+  onMouseDown(evt) {
+    const [mx, my] = this.getMousePos(evt);
     const world = this.screenToWorld(mx, my);
     const hit = this.nodes.find(n => n.contains(world));
 
     if (hit) {
-      // start hold-to-drag for node
       this.holdTimeout = setTimeout(() => {
         this.draggingNode   = hit;
         this.isDraggingNode = true;
         this.canvas.style.cursor = 'grabbing';
       }, 500);
     } else {
-      // start panning immediately
-      this.isPanning    = true;
-      this.panStart     = [mx, my];
-      this.cameraStart  = [...this.cameraOffset];
+      this.isPanning   = true;
+      this.panStart    = [mx, my];
+      this.cameraStart = [...this.cameraOffset];
       this.canvas.style.cursor = 'grab';
     }
   }
 
   onMouseUp() {
-    // cancel hold timer
     clearTimeout(this.holdTimeout);
     this.holdTimeout = null;
 
-    // stop dragging node
     if (this.isDraggingNode) {
       this.isDraggingNode = false;
       this.draggingNode   = null;
-      this.canvas.style.cursor = 'default';
     }
-    // stop panning
     if (this.isPanning) {
       this.isPanning = false;
-      this.canvas.style.cursor = 'default';
     }
+    this.canvas.style.cursor = 'default';
   }
 
-  onClick(event) {
-    // ignore click if we just dragged or panned
+  onClick(evt) {
     if (this.isDraggingNode || this.isPanning) return;
 
     const world = this.screenToWorld(this.mouseX, this.mouseY);
@@ -185,16 +196,14 @@ class MapApp {
     } else {
       this.selected = null;
       this.writing  = null;
-      if (event.shiftKey) {
-      this.addNode(world);
-      }
+      // only add on Shift+click
+      if (evt.shiftKey) this.addNode(world);
     }
     this.draw();
   }
 
   onKeyUp(e) {
     const key = e.key;
-    // delete
     if (key === 'Delete' && this.selected) {
       this.connections = this.selected.delete(this.connections, this.nodes);
       this.selected = null;
@@ -202,30 +211,22 @@ class MapApp {
       this.draw();
       return;
     }
-    // editing text
     if (this.writing) {
-      if (key === 'Enter') {
-        this.writing = null;
-      } else if (key === 'Backspace') {
+      if (key === 'Enter') this.writing = null;
+      else if (key === 'Backspace') {
         this.writing.text = this.writing.text.slice(0, -1);
         this.draw();
-      } else if (key.length === 1) {
+      }
+      else if (key.length === 1) {
         this.writing.text += key;
         this.draw();
       }
       return;
     }
     if (!this.selected) return;
-    // bind or enter edit mode
     switch (key) {
-      case 'b':
-        this.pendingBind = this.selected;
-        break;
-      case ' ':
-        this.writing = this.selected;
-        break;
-      default:
-        break;
+      case 'b': this.pendingBind = this.selected; break;
+      case ' ': this.writing    = this.selected; break;
     }
   }
 
@@ -236,26 +237,23 @@ class MapApp {
   select(node) {
     this.selected = node;
     this.writing  = null;
-    // bring to front
     this.nodes = this.nodes.filter(n => n !== node).concat(node);
   }
 
   bind(a, b) {
-    if (!this.connections.some(
-      ([x,y]) => (x===a&&y===b)||(x===b&&y===a)
-    )) {
+    if (!this.connections.some(([x,y]) => (x===a&&y===b)||(x===b&&y===a))) {
       this.connections.push([a,b]);
     }
   }
 
   draw() {
-    const { ctx, canvas, cameraOffset } = this;
+    const { ctx, canvas } = this;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // draw connections
-    ctx.strokeStyle = '#ff0000';
+    ctx.strokeStyle = '#f00';
     ctx.lineWidth   = 3;
-    this.connections.forEach(([a, b]) => {
+    this.connections.forEach(([a,b]) => {
       const [ax, ay] = this.worldToScreen(...a.position);
       const [bx, by] = this.worldToScreen(...b.position);
       ctx.beginPath();
@@ -265,22 +263,22 @@ class MapApp {
     });
 
     // draw nodes
-    this.nodes.forEach(node => {
-      const [sx, sy] = this.worldToScreen(...node.position);
+    this.nodes.forEach(n => {
+      const [sx, sy] = this.worldToScreen(...n.position);
       ctx.beginPath();
-      ctx.arc(sx, sy, node.radius, 0, 2*Math.PI);
+      ctx.arc(sx, sy, n.radius * this.scale, 0, 2*Math.PI);
       ctx.fillStyle = '#96ffff';
       ctx.fill();
 
-      ctx.lineWidth   = (this.selected===node ? 2 : 1);
-      ctx.strokeStyle = 'black';
+      ctx.lineWidth   = (this.selected===n ? 2 : 1);
+      ctx.strokeStyle = '#000';
       ctx.stroke();
 
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font         = '20px Arial';
-      ctx.fillStyle    = 'black';
-      ctx.fillText(node.text, sx, sy);
+      ctx.font         = `${20 * this.scale}px Arial`;
+      ctx.fillStyle    = '#000';
+      ctx.fillText(n.text, sx, sy);
     });
   }
 
