@@ -2,23 +2,23 @@
 
 class Node {
   constructor(position, id) {
-    this.position = position;
+    this.position = position; // world coordinates [x, y]
     this.id       = id;
     this.radius   = 25;
     this.text     = '';
   }
 
-  contains(point) {
-    const dx = this.position[0] - point[0];
-    const dy = this.position[1] - point[1];
-    return dx * dx + dy * dy <= this.radius * this.radius;
+  contains(worldPoint) {
+    const dx = this.position[0] - worldPoint[0];
+    const dy = this.position[1] - worldPoint[1];
+    return dx*dx + dy*dy <= this.radius * this.radius;
   }
 
   delete(connections, nodes) {
     // remove this node
-    const idx = nodes.indexOf(this);
-    if (idx >= 0) nodes.splice(idx, 1);
-    // remove any connections involving this node
+    const i = nodes.indexOf(this);
+    if (i >= 0) nodes.splice(i, 1);
+    // remove related connections
     return connections.filter(([a, b]) => a !== this && b !== this);
   }
 }
@@ -28,19 +28,29 @@ class MapApp {
     this.canvas        = document.getElementById(canvasId);
     this.coordsEl      = document.getElementById(coordsId);
     this.ctx           = this.canvas.getContext('2d');
+
+    // world state
     this.nodes         = [];
     this.connections   = [];
     this.selected      = null;
     this.writing       = null;
     this.pendingBind   = null;
     this.globalId      = 0;
+
+    // camera / pan
+    this.cameraOffset  = [0, 0];
+    this.isPanning     = false;
+    this.panStart      = [0, 0];
+    this.cameraStart   = [0, 0];
+
+    // hold-to-drag node
+    this.holdTimeout     = null;
+    this.draggingNode    = null;
+    this.isDraggingNode  = false;
+
+    // canvas scale
     this.sizex         = 0.95;
     this.sizey         = 0.8;
-
-    // HOLD-TO-DRAG state
-    this.holdTimeout   = null;
-    this.draggingNode  = null;
-    this.isDragging    = false;
 
     MapApp.instance = this;
   }
@@ -49,16 +59,11 @@ class MapApp {
     this.resize();
     window.addEventListener('resize', () => this.resize());
 
-    // track mouse for coords
     this.canvas.addEventListener('mousemove', e => this.onMouseMove(e));
-    // hold-to-drag start
     this.canvas.addEventListener('mousedown', e => this.onMouseDown(e));
-    // cancel hold or end drag
-    document.addEventListener('mouseup', () => this.onMouseUp());
-    // handle click (select / add / bind)
-    this.canvas.addEventListener('click', e => this.onClick(e));
-    // keyboard actions
-    document.addEventListener('keyup', e => this.onKeyUp(e));
+    document.addEventListener('mouseup',   () => this.onMouseUp());
+    this.canvas.addEventListener('click',     e => this.onClick(e));
+    document.addEventListener('keyup',    e => this.onKeyUp(e));
 
     requestAnimationFrame(() => this.loop());
   }
@@ -69,62 +74,108 @@ class MapApp {
     this.draw();
   }
 
-  onMouseMove(event) {
+  getMousePos(event) {
     const rect = this.canvas.getBoundingClientRect();
-    this.mouseX = event.clientX - rect.left;
-    this.mouseY = event.clientY - rect.top;
+    return [
+      event.clientX - rect.left,
+      event.clientY - rect.top
+    ];
+  }
 
-    // if dragging, move node
-    if (this.isDragging && this.draggingNode) {
-      this.draggingNode.position = [ this.mouseX, this.mouseY ];
+  screenToWorld(screenX, screenY) {
+    return [
+      screenX - this.cameraOffset[0],
+      screenY - this.cameraOffset[1]
+    ];
+  }
+
+  worldToScreen(worldX, worldY) {
+    return [
+      worldX + this.cameraOffset[0],
+      worldY + this.cameraOffset[1]
+    ];
+  }
+
+  onMouseMove(event) {
+    const [mx, my] = this.getMousePos(event);
+    this.mouseX = mx; this.mouseY = my;
+
+    // dragging node
+    if (this.isDraggingNode && this.draggingNode) {
+      const world = this.screenToWorld(mx, my);
+      this.draggingNode.position = world;
+    }
+    // panning
+    else if (this.isPanning) {
+      const dx = mx - this.panStart[0];
+      const dy = my - this.panStart[1];
+      this.cameraOffset[0] = this.cameraStart[0] + dx;
+      this.cameraOffset[1] = this.cameraStart[1] + dy;
     }
 
     // update coords display
     if (this.coordsEl) {
-      this.coordsEl.textContent = `${this.mouseX} | ${this.mouseY}`;
+      this.coordsEl.textContent = `${mx} | ${my}`;
     }
 
     // update cursor
-    if (this.isDragging) {
+    if (this.isDraggingNode) {
+      this.canvas.style.cursor = 'grabbing';
+    } else if (this.isPanning) {
       this.canvas.style.cursor = 'grabbing';
     } else {
-      const hit = this.nodes.find(n => n.contains([this.mouseX, this.mouseY]));
+      const world = this.screenToWorld(mx, my);
+      const hit = this.nodes.find(n => n.contains(world));
       this.canvas.style.cursor = hit ? 'pointer' : 'default';
     }
   }
 
   onMouseDown(event) {
-    // detect press-and-hold on a node
-    const pos = [this.mouseX, this.mouseY];
-    const hit = this.nodes.find(n => n.contains(pos));
-    if (!hit) return;
+    const [mx, my] = this.getMousePos(event);
+    const world = this.screenToWorld(mx, my);
+    const hit = this.nodes.find(n => n.contains(world));
 
-    this.holdTimeout = setTimeout(() => {
-      this.draggingNode = hit;
-      this.isDragging   = true;
-      this.canvas.style.cursor = 'grabbing';
-    }, 500);
+    if (hit) {
+      // start hold-to-drag for node
+      this.holdTimeout = setTimeout(() => {
+        this.draggingNode   = hit;
+        this.isDraggingNode = true;
+        this.canvas.style.cursor = 'grabbing';
+      }, 500);
+    } else {
+      // start panning immediately
+      this.isPanning    = true;
+      this.panStart     = [mx, my];
+      this.cameraStart  = [...this.cameraOffset];
+      this.canvas.style.cursor = 'grab';
+    }
   }
 
   onMouseUp() {
-    // cancel pending hold
+    // cancel hold timer
     clearTimeout(this.holdTimeout);
     this.holdTimeout = null;
 
-    // if was dragging, stop
-    if (this.isDragging) {
-      this.isDragging   = false;
-      this.draggingNode = null;
+    // stop dragging node
+    if (this.isDraggingNode) {
+      this.isDraggingNode = false;
+      this.draggingNode   = null;
+      this.canvas.style.cursor = 'default';
+    }
+    // stop panning
+    if (this.isPanning) {
+      this.isPanning = false;
       this.canvas.style.cursor = 'default';
     }
   }
 
   onClick(event) {
-    // if we just started drag, ignore click
-    if (this.isDragging) return;
+    // ignore click if we just dragged or panned
+    if (this.isDraggingNode || this.isPanning) return;
 
-    const pos = [this.mouseX, this.mouseY];
-    const hit = this.nodes.find(n => n.contains(pos));
+    const world = this.screenToWorld(this.mouseX, this.mouseY);
+    const hit   = this.nodes.find(n => n.contains(world));
+
     if (hit) {
       this.select(hit);
       if (this.pendingBind && this.pendingBind !== hit) {
@@ -134,7 +185,9 @@ class MapApp {
     } else {
       this.selected = null;
       this.writing  = null;
-      this.addNode(pos);
+      if (event.shiftKey) {
+      this.addNode(world);
+      }
     }
     this.draw();
   }
@@ -162,9 +215,8 @@ class MapApp {
       }
       return;
     }
-    // no node selected: ignore
     if (!this.selected) return;
-
+    // bind or enter edit mode
     switch (key) {
       case 'b':
         this.pendingBind = this.selected;
@@ -172,11 +224,13 @@ class MapApp {
       case ' ':
         this.writing = this.selected;
         break;
+      default:
+        break;
     }
   }
 
-  addNode(position) {
-    this.nodes.push(new Node(position, this.globalId++));
+  addNode(worldPos) {
+    this.nodes.push(new Node(worldPos, this.globalId++));
   }
 
   select(node) {
@@ -188,34 +242,37 @@ class MapApp {
 
   bind(a, b) {
     if (!this.connections.some(
-      ([x,y]) => (x===a && y===b) || (x===b && y===a)
+      ([x,y]) => (x===a&&y===b)||(x===b&&y===a)
     )) {
-      this.connections.push([a, b]);
+      this.connections.push([a,b]);
     }
   }
 
   draw() {
-    const { ctx, canvas } = this;
+    const { ctx, canvas, cameraOffset } = this;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // connections
+    // draw connections
     ctx.strokeStyle = '#ff0000';
     ctx.lineWidth   = 3;
-    this.connections.forEach(([a,b]) => {
+    this.connections.forEach(([a, b]) => {
+      const [ax, ay] = this.worldToScreen(...a.position);
+      const [bx, by] = this.worldToScreen(...b.position);
       ctx.beginPath();
-      ctx.moveTo(...a.position);
-      ctx.lineTo(...b.position);
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
       ctx.stroke();
     });
 
-    // nodes
+    // draw nodes
     this.nodes.forEach(node => {
+      const [sx, sy] = this.worldToScreen(...node.position);
       ctx.beginPath();
-      ctx.arc(...node.position, node.radius, 0, 2*Math.PI);
+      ctx.arc(sx, sy, node.radius, 0, 2*Math.PI);
       ctx.fillStyle = '#96ffff';
       ctx.fill();
 
-      ctx.lineWidth   = (this.selected === node ? 2 : 1);
+      ctx.lineWidth   = (this.selected===node ? 2 : 1);
       ctx.strokeStyle = 'black';
       ctx.stroke();
 
@@ -223,7 +280,7 @@ class MapApp {
       ctx.textBaseline = 'middle';
       ctx.font         = '20px Arial';
       ctx.fillStyle    = 'black';
-      ctx.fillText(node.text, ...node.position);
+      ctx.fillText(node.text, sx, sy);
     });
   }
 
