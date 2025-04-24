@@ -7,7 +7,7 @@
     	<script src="index.js"></script>
 	</head>
 
-	<body onresize="resize_map();" onload="app();">
+	<body onresize="MapApp.instance.resize();" onload="new MapApp('map','cords');">
 	<center>
 	<canvas id="map">
 	Your browser doesn't support canvas
