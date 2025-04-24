@@ -3,6 +3,7 @@ const sizey = 0.8;
 var camerapos = [0,0];
 var nodes = [];
 var selected = null;
+var curr_canvas = null;
 var prev_bind = null;
 var connections = [];
 var global_id = 0;
@@ -30,11 +31,13 @@ function blank(){
             var distance = Math.sqrt(Math.pow(nodes[n].position[0]-mousepos[0], 2) + Math.pow(nodes[n].position[1]-mousepos[1],2 )) - nodes[n].radius;
             if (distance <= 0) {
               selected = nodes[n];
+              curr_canvas = null;
               intersect = true;
             }
           }
           if (intersect == false) {
           selected = null;
+          curr_canvas = null;
           console.log("Created node");
           nodes.push(new node(mousepos, global_id));
           global_id += 1;
@@ -56,15 +59,34 @@ function blank(){
 
           document.addEventListener("keyup", function(event){
             console.log("Pressed key: "+event.key);
-            if (!(selected == null)){
-              if (event.key.toString() == "Backspace") {
+            if (!(selected == null)) {
+              if (event.key.toString() == "Delete") {
                 selected.delete();
                 selected = null;
+                curr_canvas = null;
                 display();
+              }
+              else if (!(curr_canvas == null)) {
+                if (event.key.toString() == "Enter") {
+                  curr_canvas = null;
+                  console.log("Done writing..");
+                }
+                else if (curr_canvas.text != null && event.key.toString() == "Backspace") {
+                  curr_canvas.text = curr_canvas.text.slice(0,-1);
+                  display();
+                }
+                else if (event.key.length === 1){
+                  curr_canvas.text += event.key.toString();
+                  display();
+                }
               }
               else if (event.key.toString() == "b") {
                 prev_bind = selected;
                 console.log("Binding..");
+              }
+              else if (event.key.toString() == " ") {
+                curr_canvas = selected;
+                console.log("Writing..");
               }
             }
           });
@@ -87,6 +109,7 @@ class node{
     this.id = id;
     this.content = null;
     this.radius = 25;
+    this.text = "";
   }
 
   delete(){
@@ -136,19 +159,20 @@ function display() {
   for (var n = 0; n < nodes.length; n++) {
     ctx.beginPath();
 
-    if (selected === nodes[n]) {
-      ctx.arc(nodes[n].position[0], nodes[n].position[1], nodes[n].radius*1.1, 0, 2 * Math.PI);
-      ctx.fillStyle = "#96ffff";
-      ctx.fill();
-      ctx.lineWidth = 2*nodes[n].radius/25;
-    }
-    else {
     ctx.arc(nodes[n].position[0], nodes[n].position[1], nodes[n].radius, 0, 2 * Math.PI);
     ctx.fillStyle = "#96ffff";
     ctx.fill();
+    if (selected === nodes[n]) {
+      ctx.lineWidth = 2*nodes[n].radius/25;
+    }
+    else {
     ctx.lineWidth = nodes[n].radius/25;
-
-  }
+    }
+    ctx.font = '20px Arial';      // Set font size and family
+    ctx.fillStyle = 'black';
+    ctx.textAlign    = 'center';  // horizontal centering
+    ctx.textBaseline = 'middle';  // vertical centering
+    ctx.fillText(nodes[n].text,nodes[n].position[0], nodes[n].position[1]);
     ctx.stroke();
 
   }
@@ -156,7 +180,7 @@ function display() {
 
 function arrInNest(mama, child){
   for( let i = 0; i < mama.length; i++ ){
-    // don't even starting to compare if length are not equal
+    // not even starting to compare if length are not equal
     if( mama[i].length != child.length ){ continue }
     
     let match = 0; // To count each exact match
