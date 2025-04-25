@@ -28,10 +28,13 @@ class Node {
 }
 
 class MapApp {
-  constructor(canvasId, coordsId) {
+  constructor(canvasId) {
     this.canvas       = document.getElementById(canvasId);
-    this.coordsEl     = document.getElementById(coordsId);
     this.ctx          = this.canvas.getContext('2d');
+
+    // Track mouse position for in-canvas draw:
+    this.mouseX = 0;
+    this.mouseY = 0;
 
     // scene state
     this.nodes        = [];
@@ -92,7 +95,10 @@ class MapApp {
 
   _onMouseMove(evt) {
     const { x: mx, y: my } = this._getMousePos(evt);
-    this.coordsEl.textContent = `${mx} | ${my}`;
+
+    // store for in-canvas display
+    this.mouseX = mx;
+    this.mouseY = my;
 
     if (this.isDragging && this.dragNode) {
       const world = this._screenToWorld({ x: mx, y: my });
@@ -326,6 +332,11 @@ class MapApp {
     const { width, height } = this.canvas;
     ctx.clearRect(0, 0, width, height);
 
+    // 1a) draw coords in top-left
+    ctx.fillStyle = 'black';
+    ctx.font = '14px monospace';
+    ctx.textBaseline = 'top';
+
     // recompute roots
     this._updateRoots();
 
@@ -377,6 +388,6 @@ class MapApp {
 
 // initialize on DOM load
 window.addEventListener('DOMContentLoaded', () => {
-  const app = new MapApp('map', 'cords');
+  const app = new MapApp('map');
   app.init();
 });
