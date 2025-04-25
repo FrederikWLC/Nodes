@@ -9,6 +9,7 @@ class Node {
     this.id       = id;
     this.radius   = Node.defaultRadius;
     this.text     = '';
+    this.isRoot   = true;  // will be recalculated each draw
   }
 
   contains(point) {
@@ -36,6 +37,7 @@ class MapApp {
     this.nodes        = [];
     this.connections  = [];
     this.isDirected   = true;
+    this.isRooted = true;
     this.selected     = null;
     this.writing      = null;
     this.pendingBind  = null;
@@ -56,7 +58,7 @@ class MapApp {
     this.dragNode     = null;
     this.isDragging   = false;
 
-    // canvas sizing
+    // sizing
     this.sizex        = 0.95;
     this.sizey        = 0.8;
 
@@ -77,8 +79,7 @@ class MapApp {
     requestAnimationFrame(() => this._loop());
   }
 
-  // ── Public API ───────────────────────────────────────────────────────────────
-
+  // public method to add a node at screen coords
   addNodeAt(screenX, screenY) {
     const world = this._screenToWorld({ x: screenX, y: screenY });
     this.nodes.push(new Node(world, this.globalId++));
@@ -87,8 +88,6 @@ class MapApp {
   resize() {
     this._resizeCanvas();
   }
-
-  // ── Event Handlers ──────────────────────────────────────────────────────────
 
   _onMouseMove(evt) {
     const { x: mx, y: my } = this._getMousePos(evt);
@@ -152,8 +151,7 @@ class MapApp {
         this.pendingBind = null;
       }
     } else {
-      this.selected = null;
-      this.writing  = null;
+      this.selected = this.writing = null;
       if (evt.shiftKey) this.addNodeAt(mx, my);
     }
 
@@ -175,12 +173,23 @@ class MapApp {
       else if (key.length === 1) this.writing.text += key;
       this._draw();
       return;
-    } 
-    else if (key === 'd') this.isDirected = !this.isDirected;
+    }
+
+    if (key === 'd') {
+      this.isDirected = !this.isDirected;
+      this._draw();
+      return;
+    }
+
+    if (key === 'r') {
+      this.isRooted = !this.isRooted;
+      this._draw();
+      return;
+    }
 
     if (!this.selected) return;
-    if (key === 'b') this.pendingBind = this.selected;
-    else if (key === ' ') this.writing = this.selected;
+    if (key === 'b')      this.pendingBind = this.selected;
+    else if (key === ' ') this.writing     = this.selected;
   }
 
   _onWheel(evt) {
@@ -238,12 +247,58 @@ class MapApp {
     this.canvas.style.cursor = hit ? 'pointer' : 'default';
   }
 
+  /**
+   * For each connected component, find the node with minimum screen-Y
+   * and mark it as root; clear others.
+   */
+  _updateRoots() {
+    // reset
+    this.nodes.forEach(n => n.isRoot = false);
+
+    // adjacency map
+    const neighbors = new Map(this.nodes.map(n => [n, []]));
+    this.connections.forEach(([a, b]) => {
+      neighbors.get(a).push(b);
+      neighbors.get(b).push(a);
+    });
+
+    const visited = new Set();
+    for (const start of this.nodes) {
+      if (visited.has(start)) continue;
+      // flood fill
+      const stack = [start];
+      const comp  = [];
+      visited.add(start);
+      while (stack.length) {
+        const n = stack.pop();
+        comp.push(n);
+        for (const m of neighbors.get(n)) {
+          if (!visited.has(m)) {
+            visited.add(m);
+            stack.push(m);
+          }
+        }
+      }
+      // pick highest-on-screen (min Y)
+      let root = comp[0];
+      let minY = this._worldToScreen(root.position).y;
+      for (const n of comp) {
+        const y = this._worldToScreen(n.position).y;
+        if (y < minY) {
+          minY = y;
+          root = n;
+        }
+      }
+      root.isRoot = true;
+    }
+  }
+
   _drawArrow(ax, ay, bx, by) {
-    const ctx    = this.ctx;
-    const head   = 10 * this.scale;
-    const angle  = Math.atan2(by - ay, bx - ax);
-    const endX   = bx - Math.cos(angle) * Node.defaultRadius * this.scale;
-    const endY   = by - Math.sin(angle) * Node.defaultRadius * this.scale;
+    const ctx   = this.ctx;
+    const head  = 10 * this.scale;
+    const angle = Math.atan2(by - ay, bx - ax);
+    const endX  = bx - Math.cos(angle) * Node.defaultRadius * this.scale;
+    const endY  = by - Math.sin(angle) * Node.defaultRadius * this.scale;
 
     ctx.beginPath();
     ctx.moveTo(ax, ay);
@@ -256,9 +311,12 @@ class MapApp {
   }
 
   _draw() {
-    const ctx       = this.ctx;
+    const ctx           = this.ctx;
     const { width, height } = this.canvas;
     ctx.clearRect(0, 0, width, height);
+
+    // recompute roots
+    this._updateRoots();
 
     // draw connections
     ctx.strokeStyle = '#f00';
@@ -281,7 +339,7 @@ class MapApp {
       const p = this._worldToScreen(node.position);
       ctx.beginPath();
       ctx.arc(p.x, p.y, node.radius * this.scale, 0, Math.PI*2);
-      ctx.fillStyle = '#96ffff';
+      ctx.fillStyle = node.isRoot && this.isRooted ? '#FFD700' : '#96ffff';
       ctx.fill();
       ctx.lineWidth   = this.selected === node ? 2 : 1;
       ctx.strokeStyle = '#000';
