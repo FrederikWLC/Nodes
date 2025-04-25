@@ -162,7 +162,6 @@ class MapApp {
 
   _onKeyUp(evt) {
     const key = evt.key;
-    if (key === 'd') this.isDirected = !this.isDirected;
     if (key === 'Delete' && this.selected) {
       this.connections = this.selected.deleteFrom(this.nodes, this.connections);
       this.selected = this.writing = null;
@@ -176,7 +175,8 @@ class MapApp {
       else if (key.length === 1) this.writing.text += key;
       this._draw();
       return;
-    }
+    } 
+    else if (key === 'd') this.isDirected = !this.isDirected;
 
     if (!this.selected) return;
     if (key === 'b') this.pendingBind = this.selected;
