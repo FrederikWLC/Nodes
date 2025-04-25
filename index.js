@@ -69,12 +69,13 @@ class MapApp {
     this._resizeCanvas();
     window.addEventListener('resize', () => this._resizeCanvas());
 
-    this.canvas.addEventListener('mousemove', e => this._onMouseMove(e));
-    this.canvas.addEventListener('mousedown', e => this._onMouseDown(e));
+    this.canvas.addEventListener('mousemove', evt => this._onMouseMove(evt));
+    this.canvas.addEventListener('mousedown', evt => this._onMouseDown(evt));
     document.addEventListener('mouseup',    () => this._onMouseUp());
-    this.canvas.addEventListener('click',     e => this._onClick(e));
-    document.addEventListener('keyup',     e => this._onKeyUp(e));
-    this.canvas.addEventListener('wheel',     e => this._onWheel(e), { passive: false });
+    document.addEventListener('click',     evt => this._onClick(evt));
+    document.addEventListener('keyup',     evt => this._onKeyUp(evt));
+    document.addEventListener('keydown',     evt => this._onKeyDown(evt));
+    this.canvas.addEventListener('wheel',     evt => this._onWheel(evt), { passive: false });
 
     requestAnimationFrame(() => this._loop());
   }
@@ -157,7 +158,13 @@ class MapApp {
 
     this._draw();
   }
+  _onKeyDown(evt) {
+    const key = evt.key;
+    if(key === ' ' && evt.target == document.body) {
+    evt.preventDefault();
+  }
 
+  }
   _onKeyUp(evt) {
     const key = evt.key;
     if (key === 'Delete' && this.selected) {
