@@ -33,3 +33,6 @@ To connect two nodes, to start with, click on the first node you want to include
 
 ## View directed connections
 To switch between viewing directed and undirected connections, press D.
+
+## View roots
+To switch between viewing and not viewing roots, press R.
