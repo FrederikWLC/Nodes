@@ -175,6 +175,8 @@ class MapApp {
       return;
     }
 
+    if (document.activeElement != document.getElementById('interpreter')) {
+
     if (key === 'd') {
       this.isDirected = !this.isDirected;
       this._draw();
@@ -185,6 +187,8 @@ class MapApp {
       this.isRooted = !this.isRooted;
       this._draw();
       return;
+    }
+
     }
 
     if (!this.selected) return;
