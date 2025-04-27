@@ -4,7 +4,6 @@ class Node {
   static defaultRadius = 25;
 
   constructor(position, id) {
-    // position: { x, y }
     this.position = { x: position.x, y: position.y };
     this.id       = id;
     this.radius   = Node.defaultRadius;
@@ -15,14 +14,30 @@ class Node {
   contains(point) {
     const dx = this.position.x - point.x;
     const dy = this.position.y - point.y;
-    return dx * dx + dy * dy <= this.radius * this.radius;
+    return dx*dx + dy*dy <= this.radius*this.radius;
+  }
+
+  /** 
+   * p1, p2 are world-space corners of the selection rect.
+   * Returns true if this node (circle) is fully inside.
+   */
+  isWithinRectangle(p1, p2) {
+    const left   = Math.min(p1.x, p2.x);
+    const right  = Math.max(p1.x, p2.x);
+    const top    = Math.min(p1.y, p2.y);
+    const bottom = Math.max(p1.y, p2.y);
+
+    return (
+      this.position.x - this.radius >= left &&
+      this.position.x + this.radius <= right &&
+      this.position.y - this.radius >= top &&
+      this.position.y + this.radius <= bottom
+    );
   }
 
   deleteFrom(nodes, connections) {
-    // remove this node
     const idx = nodes.indexOf(this);
     if (idx >= 0) nodes.splice(idx, 1);
-    // remove any connections involving this node
     return connections.filter(([a, b]) => a !== this && b !== this);
   }
 }
@@ -32,7 +47,7 @@ class MapApp {
     this.canvas       = document.getElementById(canvasId);
     this.ctx          = this.canvas.getContext('2d');
 
-    // Track mouse position for in-canvas draw:
+    // track mouse for in-canvas drawing
     this.mouseX = 0;
     this.mouseY = 0;
 
@@ -40,7 +55,7 @@ class MapApp {
     this.nodes        = [];
     this.connections  = [];
     this.isDirected   = true;
-    this.isRooted = true;
+    this.isRooted     = true;
     this.selected     = null;
     this.writing      = null;
     this.pendingBind  = null;
@@ -56,10 +71,15 @@ class MapApp {
     this.panStart     = { x: 0, y: 0 };
     this.cameraStart  = { x: 0, y: 0 };
 
-    // node-drag via hold
+    // node drag via hold
     this.holdTimer    = null;
     this.dragNode     = null;
     this.isDragging   = false;
+
+    // rectangle selection
+    this.isCovering    = false;
+    this.coverStart    = { x: 0, y: 0 };
+    this.coveredNodes  = [];
 
     // sizing
     this.sizex        = 0.95;
@@ -72,18 +92,17 @@ class MapApp {
     this._resizeCanvas();
     window.addEventListener('resize', () => this._resizeCanvas());
 
-    this.canvas.addEventListener('mousemove', evt => this._onMouseMove(evt));
-    this.canvas.addEventListener('mousedown', evt => this._onMouseDown(evt));
+    this.canvas.addEventListener('mousemove', e => this._onMouseMove(e));
+    this.canvas.addEventListener('mousedown', e => this._onMouseDown(e));
     document.addEventListener('mouseup',    () => this._onMouseUp());
-    document.addEventListener('click',     evt => this._onClick(evt));
-    document.addEventListener('keyup',     evt => this._onKeyUp(evt));
-    document.addEventListener('keydown',     evt => this._onKeyDown(evt));
-    this.canvas.addEventListener('wheel',     evt => this._onWheel(evt), { passive: false });
+    document.addEventListener('click',     e => this._onClick(e));
+    document.addEventListener('keydown',   e => this._onKeyDown(e));
+    document.addEventListener('keyup',     e => this._onKeyUp(e));
+    this.canvas.addEventListener('wheel',  e => this._onWheel(e), { passive: false });
 
     requestAnimationFrame(() => this._loop());
   }
 
-  // public method to add a node at screen coords
   addNodeAt(screenX, screenY) {
     const world = this._screenToWorld({ x: screenX, y: screenY });
     this.nodes.push(new Node(world, this.globalId++));
@@ -95,8 +114,6 @@ class MapApp {
 
   _onMouseMove(evt) {
     const { x: mx, y: my } = this._getMousePos(evt);
-
-    // store for in-canvas display
     this.mouseX = mx;
     this.mouseY = my;
 
@@ -145,7 +162,7 @@ class MapApp {
   }
 
   _onClick(evt) {
-    if (this.isDragging || this.isPanning) return;
+    if (this.isDragging || this.isPanning || this.isCovering) return;
 
     const { x: mx, y: my } = this._getMousePos(evt);
     const world = this._screenToWorld({ x: mx, y: my });
@@ -161,22 +178,39 @@ class MapApp {
       this.selected = this.writing = null;
       if (evt.shiftKey) this.addNodeAt(mx, my);
     }
-
-    this._draw();
   }
+
   _onKeyDown(evt) {
     const key = evt.key;
-    if(key === ' ' && evt.target == document.body) {
-    evt.preventDefault();
+
+    // start covering on "s" press
+    if (key === 's' && !this.writing) {
+      if (!this.isCovering) {
+      this.isCovering = true;
+      this.coverStart = { x: this.mouseX, y: this.mouseY};
+      }
+      this._draw();
+      return;
+    }
+
+    if (key === ' ' && evt.target === document.body) {
+      evt.preventDefault();
+    }
   }
 
-  }
   _onKeyUp(evt) {
     const key = evt.key;
+
+    // finish covering on "s" release
+    if (key === 's' && this.isCovering) {
+      this.isCovering = false;
+      this._coverRectangle(this.coverStart, { x: this.mouseX, y: this.mouseY});
+      return;
+    }
+
     if (key === 'Delete' && this.selected) {
       this.connections = this.selected.deleteFrom(this.nodes, this.connections);
       this.selected = this.writing = null;
-      this._draw();
       return;
     }
 
@@ -184,24 +218,16 @@ class MapApp {
       if (key === 'Enter') this.writing = null;
       else if (key === 'Backspace') this.writing.text = this.writing.text.slice(0, -1);
       else if (key.length === 1) this.writing.text += key;
-      this._draw();
       return;
     }
-
-    if (document.activeElement != document.getElementById('interpreter')) {
 
     if (key === 'd') {
       this.isDirected = !this.isDirected;
-      this._draw();
       return;
     }
-
     if (key === 'r') {
       this.isRooted = !this.isRooted;
-      this._draw();
       return;
-    }
-
     }
 
     if (!this.selected) return;
@@ -217,15 +243,10 @@ class MapApp {
     const factor   = 1 - evt.deltaY * this.zoomSpeed;
     const newScale = Math.min(this.maxScale, Math.max(this.minScale, this.scale * factor));
 
-    // keep cursor world point stationary
     this.offset.x = mx - wx * newScale;
     this.offset.y = my - wy * newScale;
     this.scale    = newScale;
-
-    this._draw();
   }
-
-  // ── Internal Utilities ───────────────────────────────────────────────────────
 
   _getMousePos(evt) {
     const rect = this.canvas.getBoundingClientRect();
@@ -240,18 +261,23 @@ class MapApp {
     return { x: x * this.scale + this.offset.x, y: y * this.scale + this.offset.y };
   }
 
+  _coverRectangle(pA, pB) {
+    // pA, pB are screen coords
+    const wA = this._screenToWorld(pA);
+    const wB = this._screenToWorld(pB);
+    this.coveredNodes = this.nodes.filter(n => n.isWithinRectangle(wA, wB));
+  }
+
   _selectNode(node) {
     this.selected = node;
     this.writing  = null;
-    // bring to front
     this.nodes = this.nodes.filter(n => n !== node).concat(node);
   }
 
   _bindNodes(a, b) {
-    const exists = this.connections.some(
-      ([x, y]) => (x === a && y === b) || (x === b && y === a)
-    );
-    if (!exists) this.connections.push([a, b]);
+    if (!this.connections.some(([x, y]) => (x===a&&y===b)||(x===b&&y===a))) {
+      this.connections.push([a, b]);
+    }
   }
 
   _updateCursor(mx, my) {
@@ -264,15 +290,10 @@ class MapApp {
     this.canvas.style.cursor = hit ? 'pointer' : 'default';
   }
 
-  /**
-   * For each connected component, find the node with minimum screen-Y
-   * and mark it as root; clear others.
-   */
   _updateRoots() {
-    // reset
+    if (!this.isRooted) return;
     this.nodes.forEach(n => n.isRoot = false);
 
-    // adjacency map
     const neighbors = new Map(this.nodes.map(n => [n, []]));
     this.connections.forEach(([a, b]) => {
       neighbors.get(a).push(b);
@@ -282,29 +303,20 @@ class MapApp {
     const visited = new Set();
     for (const start of this.nodes) {
       if (visited.has(start)) continue;
-      // flood fill
-      const stack = [start];
-      const comp  = [];
+      const stack = [start], comp = [];
       visited.add(start);
       while (stack.length) {
-        const n = stack.pop();
-        comp.push(n);
-        for (const m of neighbors.get(n)) {
-          if (!visited.has(m)) {
-            visited.add(m);
-            stack.push(m);
-          }
+        const u = stack.pop();
+        comp.push(u);
+        for (const v of neighbors.get(u)) {
+          if (!visited.has(v)) { visited.add(v); stack.push(v); }
         }
       }
-      // pick highest-on-screen (min Y)
       let root = comp[0];
       let minY = this._worldToScreen(root.position).y;
       for (const n of comp) {
         const y = this._worldToScreen(n.position).y;
-        if (y < minY) {
-          minY = y;
-          root = n;
-        }
+        if (y < minY) { minY = y; root = n; }
       }
       root.isRoot = true;
     }
@@ -312,6 +324,7 @@ class MapApp {
 
   _drawArrow(ax, ay, bx, by) {
     const ctx   = this.ctx;
+    ctx.lineWidth   = 2*this.scale;
     const head  = 10 * this.scale;
     const angle = Math.atan2(by - ay, bx - ax);
     const endX  = bx - Math.cos(angle) * Node.defaultRadius * this.scale;
@@ -327,28 +340,43 @@ class MapApp {
     ctx.stroke();
   }
 
+  _drawRectangle({ x: ax, y: ay }, { x: bx, y: by }) {
+    const ctx = this.ctx;
+    const left   = Math.min(ax, bx);
+    const top    = Math.min(ay, by);
+    const width  = Math.abs(bx - ax);
+    const height = Math.abs(by - ay);
+
+    ctx.beginPath();
+    ctx.rect(left, top, width, height);
+    ctx.fillStyle = 'rgba(0, 191, 255, 0.3)';
+    ctx.fill();
+    ctx.strokeStyle = '#00BFFF';
+    ctx.stroke();
+  }
+
   _draw() {
-    const ctx           = this.ctx;
-    const { width, height } = this.canvas;
-    ctx.clearRect(0, 0, width, height);
+    const ctx    = this.ctx;
+    const w      = this.canvas.width;
+    const h      = this.canvas.height;
 
-    // 1a) draw coords in top-left
-    ctx.fillStyle = 'black';
-    ctx.font = '14px monospace';
+    ctx.clearRect(0, 0, w, h);
+
+    // draw coords
+    ctx.fillStyle    = 'black';
+    ctx.font         = '14px monospace';
     ctx.textBaseline = 'top';
+    ctx.fillText(`Coords: ${this.mouseX} | ${this.mouseY}`, 8, 8);
 
-    // recompute roots
+    // draw connections & nodes
     this._updateRoots();
-
-    // draw connections
     ctx.strokeStyle = '#f00';
-    ctx.lineWidth   = 3;
+    ctx.lineWidth   = 3*this.scale;
     this.connections.forEach(([a, b]) => {
-      const pa = this._worldToScreen(a.position);
-      const pb = this._worldToScreen(b.position);
-      if (this.isDirected) {
-        this._drawArrow(pa.x, pa.y, pb.x, pb.y);
-      } else {
+      const pa = this._worldToScreen(a.position),
+            pb = this._worldToScreen(b.position);
+      if (this.isDirected) this._drawArrow(pa.x, pa.y, pb.x, pb.y);
+      else {
         ctx.beginPath();
         ctx.moveTo(pa.x, pa.y);
         ctx.lineTo(pb.x, pb.y);
@@ -356,22 +384,39 @@ class MapApp {
       }
     });
 
-    // draw nodes
-    this.nodes.forEach(node => {
-      const p = this._worldToScreen(node.position);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, node.radius * this.scale, 0, Math.PI*2);
-      ctx.fillStyle = node.isRoot && this.isRooted ? '#FFD700' : '#96ffff';
-      ctx.fill();
-      ctx.lineWidth   = this.selected === node ? 2 : 1;
-      ctx.strokeStyle = '#000';
-      ctx.stroke();
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font         = `${20 * this.scale}px Arial`;
-      ctx.fillStyle    = '#000';
-      ctx.fillText(node.text, p.x, p.y);
+    // highlight covered nodes
+    this.nodes.forEach(n => {
+      if (this.coveredNodes.includes(n)) {
+        const p = this._worldToScreen(n.position);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, ((n.radius+ 4) * this.scale), 0, 2*Math.PI);
+        ctx.strokeStyle = '#00BFFF';
+        ctx.lineWidth   = 2*this.scale;
+        ctx.stroke();
+      }
     });
+
+    // draw nodes
+    this.nodes.forEach(n => {
+      const p = this._worldToScreen(n.position);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, n.radius * this.scale, 0, 2*Math.PI);
+      ctx.fillStyle  = n.isRoot && this.isRooted ? '#FFD700' : '#66D9FF';
+      ctx.fill();
+      ctx.strokeStyle= '#000';
+      ctx.lineWidth  = (this.selected === n ? 2 : 1)*this.scale;
+      ctx.stroke();
+      ctx.fillStyle  = '#000';
+      ctx.textAlign  = 'center';
+      ctx.textBaseline= 'middle';
+      ctx.font       = `${20 * this.scale}px Arial`;
+      ctx.fillText(n.text, p.x, p.y);
+    });
+
+    // draw selection rectangle (during cover drag)
+    if (this.isCovering) {
+      this._drawRectangle(this.coverStart, { x: this.mouseX, y: this.mouseY });
+    }
   }
 
   _loop() {
@@ -382,11 +427,10 @@ class MapApp {
   _resizeCanvas() {
     this.canvas.width  = window.innerWidth  * this.sizex;
     this.canvas.height = window.innerHeight * this.sizey;
-    this._draw();
   }
 }
 
-// initialize on DOM load
+// bootstrap
 window.addEventListener('DOMContentLoaded', () => {
   const app = new MapApp('map');
   app.init();
