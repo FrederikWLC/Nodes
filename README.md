@@ -36,3 +36,7 @@ To switch between viewing directed and undirected connections, press D.
 
 ## View roots
 To switch between viewing and not viewing roots, press R.
+
+## Cover-select nodes
+To cover-select a bunch of nodes, hold down S to form an encapsulating rectangle.
+And release it when the rectangle covers the nodes to be mass-selected.
