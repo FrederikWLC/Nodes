@@ -208,9 +208,20 @@ class MapApp {
       return;
     }
 
-    if (key === 'Delete' && this.selected) {
-      this.connections = this.selected.deleteFrom(this.nodes, this.connections);
-      this.selected = this.writing = null;
+    if (key === 'Delete') {
+      // Remove all covered nodes, updating both nodes[] and connections[]
+     if (this.coveredNodes.length > 0) {
+        this.coveredNodes.forEach(n => {
+          // deleteFrom returns a new connections array
+          this.connections = n.deleteFrom(this.nodes, this.connections);
+        });
+        this.coveredNodes = [];
+      }
+      // Then handle single selected node deletion as before
+      if (this.selected) {
+        this.connections = this.selected.deleteFrom(this.nodes, this.connections);
+        this.selected = this.writing = null;
+      }
       return;
     }
 
