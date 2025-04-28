@@ -85,6 +85,9 @@ class MapApp {
     this.sizex        = 0.95;
     this.sizey        = 0.8;
 
+    // operations
+    this.rankBy = "size"; // size or depth
+
     MapApp.instance = this;
   }
 
@@ -108,8 +111,29 @@ class MapApp {
     this.nodes.push(new Node(world, this.globalId++));
   }
 
+  union(nodeA,nodeB) {
+    return this._union(nodeA,nodeB);
+  }
+
   resize() {
     this._resizeCanvas();
+  }
+
+  findRep(node) {
+    return this._findRep(node);
+  }
+
+  getTreeSize(root) {
+    return this._getTreeSize(root);
+  }
+
+  getTreeDepth(root) {
+    return this._getTreeDepth(root);
+
+  }
+
+  countTreeLeaves(root) {
+    return this._countTreeLeaves(root);
   }
 
   _onMouseMove(evt) {
@@ -445,6 +469,179 @@ class MapApp {
     this.canvas.width  = window.innerWidth  * this.sizex;
     this.canvas.height = window.innerHeight * this.sizey;
   }
+
+  /**
+   * Union the sets containing two nodes
+   * Decision of new root is by this.rankBy ('size' or 'depth'), tie-broken by text value.
+   */
+  _union(nodeA, nodeB) {
+    // find their representatives
+    const r1 = this.findRep(nodeA), r2 = this.findRep(nodeB);
+    if (!r1 || !r2 || r1 === r2) {
+      return this.interpreter.appendLog(`"${r1?.text}" and "${r2?.text}" are already in the same set or not found.`,true);
+    }
+
+    // helper for tie-breaking by text
+    this._tieBreak = (x, y) => {
+      const v1 = parseFloat(x.text), v2 = parseFloat(y.text);
+      if (!isNaN(v1) && !isNaN(v2)) {
+        newRoot = (v1 < v2 ? x : y);
+      } else {
+        newRoot = (x.text < y.text ? x : y);
+      }
+      child = (newRoot === x ? y : x);
+    };
+    
+    // pick new root by rankBy then text
+    let newRoot, child;
+    if (this.rankBy === 'size') {
+      const size1  = this._getTreeSize(r1);
+      const size2  = this._getTreeSize(r2);
+      if (size1 > size2)      { newRoot = r1; child = r2; }
+      else if (size2 > size1) { newRoot = r2; child = r1; }
+      else this._tieBreak(r1, r2);
+    } else {
+      const depth1 = this._getTreeDepth(r1);
+      const depth2 = this._getTreeDepth(r2);
+      if (depth1 > depth2)      { newRoot = r1; child = r2; }
+      else if (depth2 > depth1) { newRoot = r2; child = r1; }
+      else this._tieBreak(r1, r2);
+    }
+
+    // link under newRoot (directed)
+    if (!this.connections.some(([a, b]) => a === newRoot && b === child)) {
+      this.connections.push([newRoot, child]);
+      if (newRoot.position.y >= child.position.y) newRoot.position.y = child.position.y-1;
+      this.interpreter.appendLog(`Union by ${this.rankBy}: new root="${newRoot.text}", child="${child.text}"`,true);
+    } else {
+      this.interpreter.appendLog(`Already connected that way`,true);
+    }
+  }
+
+  _findRep(node) {
+    if (this.isDirected && !this.isRooted) {
+      let cur = node;
+      while (true) {
+        const edge = this.connections.find(([a, b]) => b === cur);
+        if (!edge) break;
+        cur = edge[0];
+      }
+      return cur;
+    } else {
+      this._updateRoots();
+      return this.nodes.find(n => n.isRoot &&
+        // simple component check
+        (function inComp(u, v, seen = new Set([u])) {
+          if (u === v) return true;
+          for (const [a, b] of this.connections) {
+            const nbr = (a === u ? b : (b === u ? a : null));
+            if (nbr && !seen.has(nbr)) {
+              seen.add(nbr);
+              if (inComp.call(this, nbr, v, seen)) return true;
+            }
+          }
+          return false;
+        }).call(this, n, node)
+      );
+    }
+  }
+
+  _getTreeSize(root) {
+    const visited = new Set();
+    const stack   = [ root ];
+
+    while (stack.length) {
+      const u = stack.pop();
+      if (visited.has(u)) continue;
+      visited.add(u);
+
+      // for each connection, if it's adjacent to u, push the other end
+      this.connections.forEach(([a, b]) => {
+        if (a === u && !visited.has(b)) stack.push(b);
+        if (b === u && !visited.has(a)) stack.push(a);
+      });
+    }
+
+    return visited.size;
+  }
+
+  _getTreeDepth(root) {
+    const visited = new Set();
+    let maxDepth = 0;
+    // stack holds { node, depth-from-root }
+    const stack = [{ node: root, depth: 0 }];
+    while (stack.length) {
+      const { node, depth } = stack.pop();
+      if (visited.has(node)) continue;
+      visited.add(node);
+
+      // update the maximum we've seen
+      if (depth > maxDepth) maxDepth = depth;
+
+      // explore all adjacent nodes:
+      this.connections.forEach(([a, b]) => {
+        let neighbor = null;
+        if (this.isDirected) {
+          // follow directed edges a → b
+          if (a === node) neighbor = b;
+        } else {
+          // treat as undirected
+          if (a === node) neighbor = b;
+          else if (b === node) neighbor = a;
+        }
+        if (neighbor && !visited.has(neighbor)) {
+          stack.push({ node: neighbor, depth: depth + 1 });
+        }
+      });
+    }
+    return maxDepth;
+  }
+
+  _countTreeLeaves(root) {
+    // Collect all nodes in the same component as `root`
+    const seen = new Set();
+    const stack = [root];
+    while (stack.length) {
+      const u = stack.pop();
+      if (seen.has(u)) continue;
+      seen.add(u);
+      // explore both directed children (if directed) or undirected neighbors
+      this.connections.forEach(([a, b]) => {
+        if (this.isDirected && !this.isRooted) {
+          if (a === u && !seen.has(b)) stack.push(b);
+        } else {
+          if (a === u && !seen.has(b)) stack.push(b);
+          if (b === u && !seen.has(a)) stack.push(a);
+        }
+      });
+    }
+
+    // Count leaves
+    let leafCount = 0;
+    const componentSize = seen.size;
+    seen.forEach(node => {
+      if (this.isDirected && !this.isRooted) {
+        // no outgoing edges?
+        const hasChild = this.connections.some(([a, b]) => a === node);
+        if (!hasChild) leafCount++;
+      } else {
+        // undirected: degree = number of connections adjacent to node
+        let degree = 0;
+        this.connections.forEach(([a, b]) => {
+          if (a === node || b === node) degree++;
+        });
+        // singleton tree → one leaf; otherwise degree === 1 → leaf
+        if (componentSize === 1) {
+          leafCount = 1;
+        } else if (degree === 1) {
+          leafCount++;
+        }
+      }
+    });
+
+    return leafCount;
+  }
+
 }
 
 // bootstrap
