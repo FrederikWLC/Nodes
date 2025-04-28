@@ -39,42 +39,149 @@ window.addEventListener('DOMContentLoaded', () => {
           }
           
           case 'find': {
-          
-          const name = args.join(' ');
-          const targets = name
-            ? [app.nodes.find(n => n.text === name)].filter(Boolean)
-            : app.coveredNodes.length
-              ? app.coveredNodes
-              : app.selected
-                ? [app.selected]
-                : [];
+            // ensure all isRoot flags are correct
+            app._updateRoots();
 
-          if (!targets.length) {
-            appendLog(`No node found to lookup`, true);
+            // figure out which nodes to run on
+            const name = args.join(' ');
+            const targets = name
+              ? [app.nodes.find(n => n.text === name)].filter(Boolean)
+              : app.coveredNodes.length
+                ? app.coveredNodes
+                : app.selected
+                  ? [app.selected]
+                  : [];
+
+            if (!targets.length) {
+              appendLog(`No node found to lookup`, true);
+              break;
+            }
+
+            targets.forEach(node => {
+              let rep = node;
+
+              if (app.isDirected && !app.isRooted) {
+                // follow the single incoming parent pointer until none left
+                while (true) {
+                  // find any edge a → rep
+                  const edge = app.connections.find(([a, b]) => b === rep);
+                  if (!edge) break;
+                  rep = edge[0];
+                }
+              } else {
+                // undirected: BFS to collect component, then pick the one isRoot
+                const adj = new Map(app.nodes.map(n => [n, []]));
+                app.connections.forEach(([a, b]) => {
+                  adj.get(a).push(b);
+                  adj.get(b).push(a);
+                });
+
+                // flood-fill component from node
+                const queue = [node];
+                const seen = new Set([node]);
+                while (queue.length) {
+                  const u = queue.shift();
+                  for (const v of adj.get(u)) {
+                    if (!seen.has(v)) {
+                      seen.add(v);
+                      queue.push(v);
+                    }
+                  }
+                }
+
+                // among component, find the one flagged isRoot
+                const roots = Array.from(seen).filter(n => n.isRoot);
+                if (roots.length) {
+                  rep = roots[0];
+                }
+              }
+
+              appendLog(
+                `Representative of "${node.text}": "${rep.text}"`,
+                true
+              );
+            });
+
             break;
           }
 
-          targets.forEach(node => {
-            // find true parents
-            let parents = app.connections
-              .filter(([a, b]) => b === node)
-              .map(([a, b]) => a);
+          case 'union': {
+            // parse two node identifiers
+            let [nameA, nameB] = args;
+            let nodesToUnion = [];
 
-            // if none—and node.isRoot—treat itself as parent
-            if (parents.length === 0 && node.isRoot) {
-              parents = [node];
+            if (nameA && nameB) {
+              // explicit names
+              const a = app.nodes.find(n => n.text === nameA);
+              const b = app.nodes.find(n => n.text === nameB);
+              if (a && b) nodesToUnion = [a, b];
+            } else if (app.coveredNodes.length === 2) {
+              // exactly two covered
+              nodesToUnion = app.coveredNodes.slice(0, 2);
+            } else if (app.selected) {
+              appendLog('► union needs two nodes (either names or 2 covered)', true);
+              break;
             }
 
-            const labels = parents.map(n => n.text || `(id ${n.id})`);
-            appendLog(
-              parents.length
-                ? `Parent(s) of "${node.text}": ${labels.join(', ')}`
-                : `No parent found for "${node.text}"`,
-              true
-            );
-          });
-          break;
-        }
+            if (nodesToUnion.length !== 2) {
+              appendLog('► cannot identify two nodes to union', true);
+              break;
+            }
+
+            // helper: find representative
+            function findRep(node) {
+              if (app.isDirected) {
+                let cur = node;
+                while (true) {
+                  const e = app.connections.find(([a,b]) => b === cur);
+                  if (!e) break;
+                  cur = e[0];
+                }
+                return cur;
+              } else {
+                // undirected: BFS to component root
+                app._updateRoots();
+                return app.nodes.find(n => n.isRoot 
+                  && (function comp(u, seen = new Set([u])) {
+                    if (u === node) return true;
+                    for (const v of app.connections
+                      .filter(([a,b]) => a===u||b===u)
+                      .map(([a,b]) => a===u ? b : a)) {
+                      if (!seen.has(v)) {
+                        seen.add(v);
+                        if (comp(v, seen)) return true;
+                      }
+                    }
+                    return false;
+                  })(n)
+                );
+              }
+            }
+
+            const [n1, n2] = nodesToUnion;
+            const r1 = findRep(n1), r2 = findRep(n2);
+
+            if (r1 === r2) {
+              appendLog(`"${r1.text}" and "${r2.text}" are already in the same set`, true);
+            } else {
+              // choose the lower-id as new root
+              const newRoot = r1.id < r2.id ? r1 : r2;
+              const child   = newRoot === r1 ? r2 : r1;
+
+              // add connection newRoot → child (directed)
+              if (!app.connections.some(([a,b]) => a===newRoot && b===child)) {
+                app.connections.push([newRoot, child]);
+                newRoot.position.y = child.position.y-1;
+              }
+
+              appendLog(`Union: "${r1.text}" & "${r2.text}" → new root "${newRoot.text}"`, true);
+              _updateRoots();
+
+            }
+            break;
+          }
+
+
 
           case 'clear':
             app.nodes = [];
