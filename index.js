@@ -54,7 +54,7 @@ class MapApp {
     // scene state
     this.nodes        = [];
     this.connections  = [];
-    this.isDirected   = true;
+    this.isDirected   = false;
     this.isRooted     = true;
     this.selected     = null;
     this.writing      = null;
@@ -410,8 +410,10 @@ class MapApp {
     // draw coords
     ctx.fillStyle    = 'black';
     ctx.font         = '14px monospace';
+    ctx.textAlign    = 'left';    // ← reset to left alignment
     ctx.textBaseline = 'top';
     ctx.fillText(`Coords: ${this.mouseX} | ${this.mouseY}`, 8, 8);
+
 
     // draw connections & nodes
     this._updateRoots();
@@ -536,7 +538,7 @@ class MapApp {
     comp.add(u);
     this.connections.forEach(([a, b]) => {
       if (a === u && !comp.has(b)) stack.push(b);
-      if (!this.isDirected && b === u && !comp.has(a)) stack.push(a);
+      if ((!this.isDirected || this.isRooted) && b === u && !comp.has(a)) stack.push(a);
     });
   }
 
@@ -602,7 +604,7 @@ class MapApp {
       if (right < heap.length) link(node, heap[right]);
     });
 
-    // ── NEW: reposition heap root above its first child ──
+    // ── reposition heap root above its first child ──
     if (heap.length > 1) {
       const newRoot = heap[0];
       const child   = heap[1];
@@ -610,6 +612,25 @@ class MapApp {
         newRoot.position.y = child.position.y - 1;
       }
     }
+      if (heap.length == 1) {
+        const newRoot = heap[0];
+          const minDescY = (() => {
+          let minY = newRoot.position.y;
+          const stack = [newRoot];
+          while (stack.length) {
+            const u = stack.pop();
+            this.connections.forEach(([a, b]) => {
+              if (a === u) {
+                minY = Math.min(minY, b.position.y);
+                stack.push(b);
+              }
+            });
+          }
+          return minY;
+        })();
+        newRoot.position.y = minDescY - 1;
+    }
+
   }
 
   // recompute roots
