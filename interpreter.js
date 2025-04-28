@@ -190,6 +190,38 @@ window.addEventListener('DOMContentLoaded', () => {
             return app.union(n1,n2);
           }
 
+          case 'extractMax': {
+            // optional arg: nodeText
+            // ensure all isRoot flags are correct
+            app._updateRoots();
+
+            // figure out which nodes to run on
+            const name = args.join(' ');
+            const targets = name
+              ? [app.nodes.find(n => n.text === name)].filter(Boolean)
+              : app.coveredNodes.length
+                ? app.coveredNodes
+                : app.selected
+                  ? [app.selected]
+                  : [];
+
+            if (!targets.length) {
+              interpreter.appendLog(`No node found to lookup`, true);
+              break;
+            }
+
+            targets.forEach(node => {
+              let rep = app.findRep(node);
+              const removed = app._extractMax(rep);
+              if (removed) {
+                interpreter.appendLog(`Extracted max node: "${removed.text}"`, true);
+              } else {
+                interpreter.appendLog(`No node extracted (none found)`, true);
+              }
+            });          
+            break;
+          }
+
           case 'clear':
             app.nodes = [];
             app.connections = [];

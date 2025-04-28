@@ -115,6 +115,10 @@ class MapApp {
     return this._union(nodeA,nodeB);
   }
 
+  extractMax(root) {
+    return this._extractMax(root);
+  }
+
   resize() {
     this._resizeCanvas();
   }
@@ -517,6 +521,105 @@ class MapApp {
       this.interpreter.appendLog(`Already connected that way`,true);
     }
   }
+
+    /**
+   * Remove and return the maximum‐valued node from the set
+   */
+
+  _extractMax(entry) {
+
+  // flood-fill its component
+  const comp = new Set(), stack = [entry];
+  while (stack.length) {
+    const u = stack.pop();
+    if (comp.has(u)) continue;
+    comp.add(u);
+    this.connections.forEach(([a, b]) => {
+      if (a === u && !comp.has(b)) stack.push(b);
+      if (!this.isDirected && b === u && !comp.has(a)) stack.push(a);
+    });
+  }
+
+  // find max node
+  let maxNode = null;
+  comp.forEach(n => {
+    if (!maxNode) { maxNode = n; return; }
+    const v1 = parseFloat(n.text), v2 = parseFloat(maxNode.text);
+    if (!isNaN(v1) && !isNaN(v2)) {
+      if (v1 > v2) maxNode = n;
+    } else if (n.text > maxNode.text) {
+      maxNode = n;
+    }
+  });
+  if (!maxNode) return null;
+
+  // find its parent (directed)
+  let parent = null;
+  if (this.isDirected && !this.isRooted) {
+    const e = this.connections.find(([a,b]) => b === maxNode);
+    if (e) parent = e[0];
+  }
+
+  // collect its neighbors
+  const neighbors = [];
+  this.connections.forEach(([a,b]) => {
+    if (a === maxNode) neighbors.push(b);
+    else if ((!this.isDirected || this.isRooted) && b === maxNode) neighbors.push(a);
+  });
+
+  // remove maxNode & its edges
+  this.nodes = this.nodes.filter(n => n !== maxNode);
+  this.connections = this.connections.filter(
+    ([a,b]) => a !== maxNode && b !== maxNode
+  );
+  if (this.selected === maxNode) this.selected = null;
+  this.coveredNodes = this.coveredNodes.filter(n => n !== maxNode);
+
+  // build a binary max-heap from neighbors
+  const heap = neighbors.slice().sort((A,B) => {
+    const x = parseFloat(A.text), y = parseFloat(B.text);
+    if (!isNaN(x) && !isNaN(y)) return y - x;
+    return (B.text > A.text ? 1 : -1);
+  });
+
+  // helper to link if missing
+  const link = (u,v) => {
+    if (!this.connections.some(([a,b]) => a===u&&b===v)) {
+      this.connections.push([u,v]);
+    }
+  };
+
+  if (heap.length) {
+    // attach heap root under old parent
+    if (parent) {
+      link(parent, heap[0]);
+    }
+    // build heap as perfect binary tree
+    heap.forEach((node,i) => {
+      const left  = 2*i + 1;
+      const right = 2*i + 2;
+      if (left  < heap.length) link(node, heap[left]);
+      if (right < heap.length) link(node, heap[right]);
+    });
+
+    // ── NEW: reposition heap root above its first child ──
+    if (heap.length > 1) {
+      const newRoot = heap[0];
+      const child   = heap[1];
+      if (newRoot.position.y >= child.position.y) {
+        newRoot.position.y = child.position.y - 1;
+      }
+    }
+  }
+
+  // recompute roots
+  this._updateRoots();
+
+  return maxNode;
+}
+
+
+
 
   _findRep(node) {
     if (this.isDirected && !this.isRooted) {
