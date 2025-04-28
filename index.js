@@ -182,6 +182,9 @@ class MapApp {
 
   _onKeyDown(evt) {
     const key = evt.key;
+    if (document.activeElement == document.querySelector('textarea')) {
+      return;
+    }
 
     // start covering on "s" press
     if (key === 's' && !this.writing) {
@@ -200,6 +203,9 @@ class MapApp {
 
   _onKeyUp(evt) {
     const key = evt.key;
+    if (document.activeElement == document.querySelector('textarea')) {
+      return;
+    }
 
     // finish covering on "s" release
     if (key === 's' && this.isCovering) {

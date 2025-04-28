@@ -31,11 +31,51 @@ window.addEventListener('DOMContentLoaded', () => {
         appendLog(line);
 
         switch (cmd) {
+          
           case 'addNode': {
             const x = parseFloat(args[0]), y = parseFloat(args[1]);
             if (!isNaN(x) && !isNaN(y)) app.addNodeAt(x, y);
             break;
           }
+          
+          case 'find': {
+          
+          const name = args.join(' ');
+          const targets = name
+            ? [app.nodes.find(n => n.text === name)].filter(Boolean)
+            : app.coveredNodes.length
+              ? app.coveredNodes
+              : app.selected
+                ? [app.selected]
+                : [];
+
+          if (!targets.length) {
+            appendLog(`No node found to lookup`, true);
+            break;
+          }
+
+          targets.forEach(node => {
+            // find true parents
+            let parents = app.connections
+              .filter(([a, b]) => b === node)
+              .map(([a, b]) => a);
+
+            // if none—and node.isRoot—treat itself as parent
+            if (parents.length === 0 && node.isRoot) {
+              parents = [node];
+            }
+
+            const labels = parents.map(n => n.text || `(id ${n.id})`);
+            appendLog(
+              parents.length
+                ? `Parent(s) of "${node.text}": ${labels.join(', ')}`
+                : `No parent found for "${node.text}"`,
+              true
+            );
+          });
+          break;
+        }
+
           case 'clear':
             app.nodes = [];
             app.connections = [];
